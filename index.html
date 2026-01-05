@@ -56,7 +56,7 @@
     <div id="sc-game" class="screen">
         <div id="status">ВАШ ХОД</div>
         <div id="eb" class="board"></div>
-        <div style="font-size: 12px; opacity: 0.6; margin: 5px;">ВАШ ФЛОТ</div>
+        <div style="font-size: 12px; opacity: 0.6; margin: 5px;">ВАШ ФЛОТ (Палуб: <span id="p-count">20</span>)</div>
         <div id="pb" class="board"></div>
         <button class="btn" style="background:#95a5a6; padding: 10px;" onclick="location.reload()">В МЕНЮ</button>
     </div>
@@ -160,7 +160,26 @@
         }
         document.getElementById('sc-setup').classList.remove('active');
         document.getElementById('sc-game').classList.add('active');
+        updateCounters();
         renderGame();
+    }
+
+    function updateCounters() {
+        const pLive = pBoard.filter(v => v === 1).length;
+        document.getElementById('p-count').innerText = pLive;
+        
+        const eLive = mode === 'pve' 
+            ? botShips.filter(v => v === 1).length 
+            : 20; // В PvP счетчик врага скрыт для честности, либо можно считать попадания
+
+        if (pLive === 0) endGame("ВЫ ПРОИГРАЛИ!");
+        if (mode === 'pve' && eLive === 0) endGame("ПОБЕДА!");
+    }
+
+    function endGame(msg) {
+        isTurn = false;
+        alert(msg);
+        location.reload();
     }
 
     function renderGame() {
@@ -180,8 +199,10 @@
         if(!isTurn || eBoard[idx] > 0) return;
         if(mode === 'pve') {
             const hit = botShips[idx] === 1;
-            eBoard[idx] = hit ? 3 : 2;
+            botShips[idx] = hit ? 3 : 2; // Помечаем в скрытом поле бота
+            eBoard[idx] = hit ? 3 : 2;   // Помечаем на экране
             hit ? soundHit() : soundMiss();
+            updateCounters();
             if(!hit) { isTurn = false; document.getElementById('status').innerText = "ХОД БОТА"; setTimeout(botAction, 800); }
         } else {
             socket.emit('shot', { room: roomID, index: idx }); isTurn = false;
@@ -194,6 +215,7 @@
         const hit = pBoard[idx] === 1;
         pBoard[idx] = hit ? 3 : 2;
         hit ? soundHit() : soundMiss();
+        updateCounters();
         if(hit) setTimeout(botAction, 800);
         else { isTurn = true; document.getElementById('status').innerText = "ВАШ ХОД"; }
         renderGame();
@@ -203,6 +225,7 @@
         socket.on('game_start', (d) => { roomID=d.room; isTurn=(d.role==='first'); document.getElementById('status').innerText=isTurn?"ВАШ ХОД":"ХОД ВРАГА"; renderGame(); });
         socket.on('enemy_shot', (d) => { 
             const r = pBoard[d.index]===1?3:2; pBoard[d.index]=r; r===3?soundHit():soundMiss();
+            updateCounters();
             socket.emit('shot_result', {room:roomID, index:d.index, status:r}); isTurn=(r===2); renderGame(); 
         });
         socket.on('enemy_shot_result', (d) => { eBoard[d.index]=d.status; d.status===3?soundHit():soundMiss(); isTurn=(d.status===3); renderGame(); });
