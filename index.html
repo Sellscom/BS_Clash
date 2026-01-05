@@ -3,24 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Sea Battle Pro</title>
+    <title>Sea Battle: Classic Rules</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { font-family: -apple-system, sans-serif; background: #f0f4f8; margin: 0; padding: 10px; text-align: center; color: #2c3e50; user-select: none; }
-        .screen { display: none; flex-direction: column; align-items: center; width: 100%; min-height: 80vh; justify-content: center; }
+        .screen { display: none; flex-direction: column; align-items: center; width: 100%; min-height: 80vh; }
         .active { display: flex; }
         
         .board { 
             display: grid; grid-template-columns: repeat(10, 1fr); 
-            width: min(85vw, 320px); height: min(85vw, 320px); 
+            width: min(88vw, 340px); height: min(88vw, 340px); 
             background: #fff; border: 2px solid #2c3e50; margin: 10px auto; 
         }
-        .cell { border: 1px solid #e1e8ed; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; }
-        .ship { background: #3498db; }
-        .hit { background: #e74c3c !important; color: white; }
-        .hit::after { content: "×"; font-weight: bold; }
+        .cell { border: 1px solid #e1e8ed; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 10px; }
+        .ship { background: #3498db !important; border: 1px solid #2980b9; }
+        .hit { background: #e74c3c !important; }
+        .hit::after { content: "×"; color: white; font-size: 20px; font-weight: bold; }
         .miss::after { content: "•"; color: #bdc3c7; font-size: 24px; }
 
         .btn {
@@ -29,36 +29,39 @@
             font-weight: bold; font-size: 16px; cursor: pointer;
         }
         .btn-green { background: #2ecc71; }
-        .btn-red { background: #e74c3c; }
+        .btn-orange { background: #f39c12; }
         
         #status { font-weight: bold; margin: 10px; color: #2980b9; height: 24px; }
-        .player-label { font-size: 14px; font-weight: bold; margin-bottom: 5px; color: #34495e; }
+        .player-label { font-size: 14px; font-weight: bold; margin: 5px 0; color: #34495e; }
         
-        /* Экран финала */
-        .result-title { font-size: 32px; font-weight: 900; margin-bottom: 10px; }
-        .win { color: #2ecc71; }
-        .lose { color: #e74c3c; }
+        .result-card { background: white; padding: 30px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        .win-text { color: #2ecc71; font-size: 32px; font-weight: 900; }
+        .lose-text { color: #e74c3c; font-size: 32px; font-weight: 900; }
     </style>
 </head>
 <body>
 
     <div id="sc-menu" class="screen active">
-        <h1>МОРСКОЙ БОЙ</h1>
-        <p style="color: #7f8c8d;">В сети: <span id="online-count">0</span></p>
+        <h1 style="margin-top: 40px;">МОРСКОЙ БОЙ</h1>
+        <p>Игроков онлайн: <span id="online-count">...</span></p>
         <button class="btn" onclick="openSetup('pve')">ИГРАТЬ С БОТОМ</button>
         <button class="btn btn-green" onclick="openSetup('pvp')">МУЛЬТИПЛЕЕР</button>
     </div>
 
     <div id="sc-setup" class="screen">
-        <h3>Подготовка флота</h3>
-        <p id="setup-info">Ставим: 4-палубный</p>
+        <h3>Расстановка флота</h3>
+        <p id="setup-info">Загрузка...</p>
         <div id="setup-board" class="board"></div>
-        <button class="btn btn-orange" onclick="autoPlace('player')">СЛУЧАЙНО</button>
+        <div style="display:flex; gap:10px; width:100%; max-width:340px">
+            <button class="btn" onclick="isVertical = !isVertical; this.innerText = isVertical ? 'Вертикально' : 'Горизонт.'" style="font-size:12px">Горизонт.</button>
+            <button class="btn btn-orange" onclick="autoPlace('player')" style="font-size:12px">Случайно</button>
+        </div>
         <button class="btn btn-green" id="start-battle-btn" onclick="startBattle()" disabled>В БОЙ!</button>
+        <button class="btn" onclick="location.reload()" style="background:#95a5a6; font-size:12px">Сброс</button>
     </div>
 
     <div id="sc-game" class="screen">
-        <div id="status">ОЖИДАНИЕ...</div>
+        <div id="status">ВАШ ХОД</div>
         <div class="player-label">ПРОТИВНИК: <span id="enemy-name">Бот</span></div>
         <div id="eb" class="board"></div>
         <div class="player-label">ВЫ: <span id="my-name">Игрок</span></div>
@@ -66,10 +69,12 @@
     </div>
 
     <div id="sc-result" class="screen">
-        <div id="result-text" class="result-title">ПОБЕДА!</div>
-        <p id="result-subtext">Вы уничтожили все корабли врага</p>
-        <button class="btn btn-green" onclick="location.reload()">РЕВАНШ</button>
-        <button class="btn" onclick="location.reload()" style="background:#95a5a6">В МЕНЮ</button>
+        <div class="result-card">
+            <div id="result-title"></div>
+            <p id="result-desc"></p>
+            <button class="btn btn-green" onclick="location.reload()">РЕВАНШ</button>
+            <button class="btn" onclick="location.reload()" style="background:#95a5a6">В МЕНЮ</button>
+        </div>
     </div>
 
 <script>
@@ -78,19 +83,17 @@
     
     let mode = 'pve';
     let pBoard = Array(100).fill(0), eBoard = Array(100).fill(0), botShips = Array(100).fill(0);
-    let isTurn = false, roomID = null;
+    let isTurn = false, isVertical = false, roomID = null;
     const shipSchema = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
     let currentShipIdx = 0;
 
     if(tg) {
         tg.ready();
-        document.getElementById('my-name').innerText = tg.initDataUnsafe?.user?.first_name || "Вы";
+        tg.expand();
+        document.getElementById('my-name').innerText = tg.initDataUnsafe?.user?.first_name || "Игрок";
     }
 
-    // Слушатель онлайна
-    socket.on('player_count', (count) => {
-        document.getElementById('online-count').innerText = count;
-    });
+    socket.on('player_count', (c) => document.getElementById('online-count').innerText = c);
 
     function showScreen(id) {
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -101,7 +104,6 @@
         mode = m;
         pBoard.fill(0);
         currentShipIdx = 0;
-        document.getElementById('start-battle-btn').disabled = true;
         showScreen('sc-setup');
         renderSetup();
     }
@@ -109,22 +111,49 @@
     function renderSetup() {
         const b = document.getElementById('setup-board'); b.innerHTML = '';
         const len = shipSchema[currentShipIdx];
-        document.getElementById('setup-info').innerText = len ? `Ставим: ${len}-палубный` : "Флот готов!";
+        document.getElementById('setup-info').innerText = len ? `Поставьте ${len}-палубный корабль` : "Флот готов к сражению!";
+        
         for(let i=0; i<100; i++) {
             const c = document.createElement('div');
             c.className = 'cell' + (pBoard[i] === 1 ? ' ship' : '');
-            c.onclick = () => { if(len) placeOne(i, len); };
+            c.onclick = () => { if(len) handlePlace(i, len); };
             b.appendChild(c);
         }
     }
 
-    function placeOne(idx, len) {
-        // Упрощенная расстановка (горизонтальная по умолчанию)
-        if (idx % 10 + len > 10) return; 
-        for(let i=0; i<len; i++) pBoard[idx+i] = 1;
-        currentShipIdx++;
-        if(currentShipIdx >= shipSchema.length) document.getElementById('start-battle-btn').disabled = false;
-        renderSetup();
+    function handlePlace(idx, len) {
+        if(canPlace(idx, len, isVertical, pBoard)) {
+            for(let i=0; i<len; i++) {
+                pBoard[isVertical ? idx + i*10 : idx + i] = 1;
+            }
+            currentShipIdx++;
+            if(currentShipIdx >= shipSchema.length) document.getElementById('start-battle-btn').disabled = false;
+            renderSetup();
+        }
+    }
+
+    // КЛЮЧЕВАЯ ФУНКЦИЯ: Проверка правил соседства
+    function canPlace(idx, len, vert, board) {
+        const x = idx % 10, y = Math.floor(idx / 10);
+        
+        for (let i = 0; i < len; i++) {
+            const cx = vert ? x : x + i;
+            const cy = vert ? y + i : y;
+
+            if (cx > 9 || cy > 9) return false; // Выход за границы
+
+            // Проверяем саму клетку и все 8 клеток вокруг неё
+            for (let v = -1; v <= 1; v++) {
+                for (let h = -1; h <= 1; h++) {
+                    const nx = cx + h;
+                    const ny = cy + v;
+                    if (nx >= 0 && nx < 10 && ny >= 0 && ny < 10) {
+                        if (board[ny * 10 + nx] === 1) return false; // Сосед найден!
+                    }
+                }
+            }
+        }
+        return true;
     }
 
     function autoPlace(target) {
@@ -148,19 +177,10 @@
         }
     }
 
-    function canPlace(idx, len, vert, board) {
-        let x = idx % 10, y = Math.floor(idx / 10);
-        for(let i=0; i<len; i++) {
-            let cx = vert ? x : x + i, cy = vert ? y + i : y;
-            if(cx > 9 || cy > 9 || board[cy*10 + cx]) return false;
-        }
-        return true;
-    }
-
     function startBattle() {
         if(mode === 'pvp') {
             socket.emit('find_game', { name: document.getElementById('my-name').innerText });
-            document.getElementById('status').innerText = "ПОИСК ПРОТИВНИКА...";
+            document.getElementById('status').innerText = "ПОИСК ВРАГА...";
         } else {
             autoPlace('bot');
             isTurn = true;
@@ -170,20 +190,26 @@
         renderGame();
     }
 
-    function checkEnd() {
-        const myLeft = pBoard.filter(v => v === 1).length;
-        const enemyLeft = mode === 'pve' ? botShips.filter(v => v === 1).length : 1; // Упрощено для PvP
-
-        if(myLeft === 0) finishGame(false);
-        else if(mode === 'pve' && enemyLeft === 0) finishGame(true);
+    function handleShot(idx) {
+        if(!isTurn || eBoard[idx] > 0) return;
+        if(mode === 'pve') {
+            const hit = botShips[idx] === 1;
+            eBoard[idx] = hit ? 3 : 2;
+            botShips[idx] = hit ? 3 : 2;
+            if(!hit) { isTurn = false; setTimeout(botMove, 600); }
+            checkWin(); renderGame();
+        } else {
+            socket.emit('shot', { room: roomID, index: idx });
+            isTurn = false; renderGame();
+        }
     }
 
-    function finishGame(win) {
-        showScreen('sc-result');
-        const title = document.getElementById('result-text');
-        title.innerText = win ? "ПОБЕДА!" : "ПОРАЖЕНИЕ!";
-        title.className = "result-title " + (win ? "win" : "lose");
-        document.getElementById('result-subtext').innerText = win ? "Вы разгромили флот противника!" : "Ваш флот пошел ко дну...";
+    function botMove() {
+        let idx; do { idx = Math.floor(Math.random()*100); } while(pBoard[idx] > 1);
+        const hit = pBoard[idx] === 1;
+        pBoard[idx] = hit ? 3 : 2;
+        if(hit) setTimeout(botMove, 600); else isTurn = true;
+        checkWin(); renderGame();
     }
 
     function renderGame() {
@@ -191,7 +217,7 @@
         eb.innerHTML = ''; pb.innerHTML = '';
         eBoard.forEach((v, i) => {
             const c = document.createElement('div'); c.className = 'cell' + (v===2?' miss':v===3?' hit':'');
-            c.onclick = () => { if(isTurn) handleShot(i); }; eb.appendChild(c);
+            c.onclick = () => handleShot(i); eb.appendChild(c);
         });
         pBoard.forEach((v, i) => {
             const c = document.createElement('div'); c.className = 'cell' + (v===1?' ship':v===2?' miss':v===3?' hit':'');
@@ -199,47 +225,37 @@
         });
     }
 
-    function handleShot(idx) {
-        if(eBoard[idx] > 0) return;
-        if(mode === 'pve') {
-            const hit = botShips[idx] === 1;
-            eBoard[idx] = hit ? 3 : 2; botShips[idx] = hit ? 3 : 2;
-            if(!hit) { isTurn = false; setTimeout(botTurn, 800); }
-            checkEnd(); renderGame();
-        } else {
-            socket.emit('shot', { room: roomID, index: idx });
-            isTurn = false; renderGame();
-        }
+    function checkWin() {
+        const myLeft = pBoard.filter(v => v === 1).length;
+        const botLeft = botShips.filter(v => v === 1).length;
+        if(myLeft === 0) showFinal(false);
+        else if(mode === 'pve' && botLeft === 0) showFinal(true);
     }
 
-    function botTurn() {
-        let idx; do { idx = Math.floor(Math.random()*100); } while(pBoard[idx] > 1);
-        const hit = pBoard[idx] === 1;
-        pBoard[idx] = hit ? 3 : 2;
-        if(hit) setTimeout(botTurn, 800); else isTurn = true;
-        checkEnd(); renderGame();
+    function showFinal(win) {
+        showScreen('sc-result');
+        document.getElementById('result-title').innerText = win ? "ПОБЕДА!" : "ПОРАЖЕНИЕ!";
+        document.getElementById('result-title').className = win ? "win-text" : "lose-text";
+        document.getElementById('result-desc').innerText = win ? "Вы полностью уничтожили флот противника!" : "Ваш флот был потоплен противником.";
     }
 
+    // Сокеты для PvP
     socket.on('game_start', (d) => {
         roomID = d.room; isTurn = (d.role === 'first');
         document.getElementById('enemy-name').innerText = d.opponentName;
         document.getElementById('status').innerText = isTurn ? "ВАШ ХОД" : "ХОД ВРАГА";
         renderGame();
     });
-
     socket.on('enemy_shot', (d) => {
         const r = pBoard[d.index] === 1 ? 3 : 2;
         pBoard[d.index] = r;
         socket.emit('shot_result', { room: roomID, index: d.index, status: r });
-        isTurn = (r === 2); renderGame(); checkEnd();
+        isTurn = (r === 2); renderGame(); checkWin();
     });
-
     socket.on('enemy_shot_result', (d) => {
         eBoard[d.index] = d.status;
         isTurn = (d.status === 3); renderGame();
-        // В PvP проверка победы обычно идет через сервер, но здесь для простоты:
-        const hits = eBoard.filter(v => v === 3).length;
-        if(hits === 20) finishGame(true);
+        if(eBoard.filter(v => v === 3).length === 20) showFinal(true);
     });
 </script>
 </body>
