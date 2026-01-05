@@ -8,7 +8,20 @@ const io = new Server(server, {
 
 let waitingPlayer = null;
 
-io.on('connection', (socket) => {
+io.on('connection', (socket) => 
+    // Внутри io.on('connection', (socket) => { ...
+    
+    // Считаем и рассылаем количество игроков всем
+    const updatePlayerCount = () => {
+        io.emit('player_count', io.engine.clientsCount);
+    };
+    updatePlayerCount();
+
+    // При отключении тоже обновляем счетчик
+    socket.on('disconnect', () => {
+        updatePlayerCount();
+        // ... остальная логика disconnect
+    });
     console.log('Пользователь подключился:', socket.id);
 
     socket.on('find_game', (userData) => {
@@ -52,4 +65,5 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
+
 server.listen(PORT, () => console.log(`Сервер запущен на порту ${PORT}`));
