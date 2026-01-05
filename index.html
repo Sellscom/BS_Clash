@@ -3,38 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Sea Battle Pro</title>
+    <title>Sea Battle Ultra</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        body { font-family: -apple-system, sans-serif; background: #f0f4f8; margin: 0; padding: 10px; text-align: center; color: #2c3e50; }
-        
+        body { font-family: -apple-system, sans-serif; background: #f0f4f8; margin: 0; padding: 10px; text-align: center; color: #2c3e50; user-select: none; }
         .screen { display: none; flex-direction: column; align-items: center; width: 100%; }
         .active { display: flex; }
-
         .board { 
             display: grid; grid-template-columns: repeat(10, 1fr); 
             width: min(90vw, 340px); height: min(90vw, 340px); 
             background: #fff; border: 2px solid #2c3e50; margin: 10px auto; 
         }
         .cell { border: 1px solid #e1e8ed; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; position: relative; }
-        
         .ship { background: #3498db; border: 1px solid #2980b9; }
         .hit { background: #e74c3c !important; }
         .hit::after { content: "×"; color: white; font-weight: bold; }
         .miss::after { content: "•"; color: #bdc3c7; font-size: 24px; }
-
         .btn {
             display: block; width: 100%; max-width: 280px; padding: 15px; margin: 8px auto;
             border-radius: 12px; border: none; background: #3498db; color: white;
             font-weight: bold; font-size: 16px; cursor: pointer;
         }
-        .btn:disabled { background: #bdc3c7; }
+        .btn:disabled { background: #bdc3c7; cursor: not-allowed; }
         .btn-green { background: #2ecc71; }
-        
+        .btn-orange { background: #f39c12; }
         #status { font-weight: bold; margin: 10px; color: #2980b9; height: 24px; }
-        .controls { display: flex; gap: 10px; width: 100%; max-width: 340px; }
+        .controls { display: flex; gap: 5px; width: 100%; max-width: 340px; }
     </style>
 </head>
 <body>
@@ -47,11 +43,12 @@
 
     <div id="sc-setup" class="screen">
         <h3>Расстановка флота</h3>
-        <p id="setup-info">Выберите место для: 4-палубный</p>
+        <p id="setup-info">Ставим: 4-палубный</p>
         <div id="setup-board" class="board"></div>
         <div class="controls">
-            <button class="btn" onclick="toggleOrientation()" id="orient-btn">Поворот: Гориз.</button>
-            <button class="btn" style="background:#f39c12" onclick="resetSetup()">Сброс</button>
+            <button class="btn" onclick="toggleOrientation()" id="orient-btn" style="font-size:12px">Горизонт.</button>
+            <button class="btn btn-orange" onclick="autoPlace('player')" style="font-size:12px">Случайно</button>
+            <button class="btn" style="background:#95a5a6; font-size:12px" onclick="resetSetup()">Сброс</button>
         </div>
         <button class="btn btn-green" id="start-battle-btn" onclick="startBattle()" disabled>В БОЙ!</button>
     </div>
@@ -61,104 +58,95 @@
         <div id="eb" class="board"></div>
         <div style="font-size: 12px; opacity: 0.6; margin: 5px;">ВАШ ФЛОТ</div>
         <div id="pb" class="board"></div>
-        <button class="btn" style="background:#95a5a6; padding: 8px;" onclick="location.reload()">В МЕНЮ</button>
+        <button class="btn" style="background:#95a5a6; padding: 10px;" onclick="location.reload()">В МЕНЮ</button>
     </div>
 
 <script>
     const tg = window.Telegram ? window.Telegram.WebApp : null;
     const socket = io("https://bs-clash.onrender.com", { transports: ['websocket', 'polling'] });
-
-    // Звуковой движок (Web Audio API)
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    function playSound(freq, type, duration) {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = type; osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
-        osc.connect(gain); gain.connect(audioCtx.destination);
-        osc.start(); osc.stop(audioCtx.currentTime + duration);
+
+    function playSound(f, t, d) {
+        try {
+            const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+            o.type = f < 200 ? 'square' : 'sine'; o.frequency.value = f;
+            g.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + d);
+            o.connect(g); g.connect(audioCtx.destination);
+            o.start(); o.stop(audioCtx.currentTime + d);
+        } catch(e) {}
     }
 
-    const soundHit = () => { playSound(150, 'sawtooth', 0.4); if(tg) tg.HapticFeedback.impactOccurred('heavy'); };
-    const soundMiss = () => playSound(300, 'sine', 0.2);
-    const soundClick = () => playSound(600, 'sine', 0.05);
+    const soundHit = () => { playSound(120, 'sq', 0.5); if(tg) tg.HapticFeedback.impactOccurred('heavy'); };
+    const soundMiss = () => playSound(400, 'si', 0.2);
+    const soundClick = () => playSound(800, 'si', 0.05);
 
-    // Логика кораблей
     let mode = 'pve';
     let pBoard = Array(100).fill(0);
     let eBoard = Array(100).fill(0);
+    let botShips = Array(100).fill(0);
     let isTurn = false;
-    let roomID = null;
-    
-    // Порядок расстановки: 1x4, 2x3, 3x2, 4x1
-    const shipSchema = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
-    let currentShipIdx = 0;
     let isVertical = false;
+    let currentShipIdx = 0;
+    const shipSchema = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
 
     function openSetup(m) {
-        mode = m;
-        resetSetup();
-        showScreen('sc-setup');
-        renderSetup();
+        mode = m; resetSetup();
+        document.getElementById('sc-menu').classList.remove('active');
+        document.getElementById('sc-setup').classList.add('active');
     }
 
     function resetSetup() {
-        pBoard.fill(0);
-        currentShipIdx = 0;
+        pBoard.fill(0); currentShipIdx = 0;
         document.getElementById('start-battle-btn').disabled = true;
         renderSetup();
     }
 
-    function toggleOrientation() {
-        isVertical = !isVertical;
-        document.getElementById('orient-btn').innerText = isVertical ? "Поворот: Верт." : "Поворот: Гориз.";
-        soundClick();
-    }
+    function toggleOrientation() { isVertical = !isVertical; document.getElementById('orient-btn').innerText = isVertical ? "Вертик." : "Горизонт."; soundClick(); }
 
     function renderSetup() {
-        const b = document.getElementById('setup-board');
-        b.innerHTML = '';
-        const currentLen = shipSchema[currentShipIdx];
-        document.getElementById('setup-info').innerText = currentLen ? `Ставим: ${currentLen}-палубный` : "Все корабли расставлены!";
-        
+        const b = document.getElementById('setup-board'); b.innerHTML = '';
+        const len = shipSchema[currentShipIdx];
+        document.getElementById('setup-info').innerText = len ? `Ставим: ${len}-палубный` : "Готово к бою!";
         for(let i=0; i<100; i++) {
             const c = document.createElement('div');
             c.className = 'cell' + (pBoard[i] === 1 ? ' ship' : '');
-            c.onclick = () => tryPlaceShip(i);
+            c.onclick = () => { if(len) tryPlaceShip(i, len, isVertical, pBoard, true); };
             b.appendChild(c);
         }
     }
 
-    function tryPlaceShip(idx) {
-        if(currentShipIdx >= shipSchema.length) return;
-        const len = shipSchema[currentShipIdx];
+    function tryPlaceShip(idx, len, vert, board, isPlayer) {
         const x = idx % 10, y = Math.floor(idx / 10);
-        
-        // Проверка границ и соседей
         const coords = [];
         for(let i=0; i<len; i++) {
-            const cx = isVertical ? x : x + i;
-            const cy = isVertical ? y + i : y;
-            if(cx > 9 || cy > 9) return; // Выход за границы
-            
-            // Проверка окружения (правило 1 клетки)
+            const cx = vert ? x : x + i; const cy = vert ? y + i : y;
+            if(cx > 9 || cy > 9 || board[cy*10 + cx] === 1) return false;
             for(let dy=-1; dy<=1; dy++) {
                 for(let dx=-1; dx<=1; dx++) {
                     const nx = cx + dx, ny = cy + dy;
-                    if(nx >=0 && nx <10 && ny >=0 && ny <10) {
-                        if(pBoard[ny*10 + nx] === 1) return; 
-                    }
+                    if(nx>=0 && nx<10 && ny>=0 && ny<10 && board[ny*10 + nx] === 1) return false;
                 }
             }
             coords.push(cy * 10 + cx);
         }
+        coords.forEach(c => board[c] = 1);
+        if(isPlayer) { currentShipIdx++; soundClick(); if(currentShipIdx >= shipSchema.length) document.getElementById('start-battle-btn').disabled = false; renderSetup(); }
+        return true;
+    }
 
-        coords.forEach(c => pBoard[c] = 1);
-        currentShipIdx++;
-        soundClick();
-        if(currentShipIdx === shipSchema.length) document.getElementById('start-battle-btn').disabled = false;
-        renderSetup();
+    function autoPlace(target) {
+        const board = target === 'player' ? pBoard : botShips;
+        board.fill(0);
+        shipSchema.forEach(len => {
+            let placed = false;
+            while(!placed) {
+                const idx = Math.floor(Math.random()*100);
+                const vert = Math.random() > 0.5;
+                if(tryPlaceShip(idx, len, vert, board, false)) placed = true;
+            }
+        });
+        if(target === 'player') { currentShipIdx = shipSchema.length; document.getElementById('start-battle-btn').disabled = false; renderSetup(); }
     }
 
     function startBattle() {
@@ -166,89 +154,59 @@
             socket.emit('find_game', { name: tg?.initDataUnsafe?.user?.first_name || "Игрок" });
             document.getElementById('status').innerText = "ПОИСК ПРОТИВНИКА...";
         } else {
-            generateBotBoard();
+            autoPlace('bot');
             isTurn = true;
             document.getElementById('status').innerText = "ВАШ ХОД";
         }
-        showScreen('sc-game');
+        document.getElementById('sc-setup').classList.remove('active');
+        document.getElementById('sc-game').classList.add('active');
         renderGame();
     }
 
-    function showScreen(id) {
-        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-        document.getElementById(id).classList.add('active');
-    }
-
-    // Рендер игры и логика выстрелов (упрощенно)
     function renderGame() {
-        const eb = document.getElementById('eb');
-        const pb = document.getElementById('pb');
+        const eb = document.getElementById('eb'); const pb = document.getElementById('pb');
         eb.innerHTML = ''; pb.innerHTML = '';
-
         eBoard.forEach((v, i) => {
-            const c = document.createElement('div');
-            c.className = 'cell' + (v === 2 ? ' miss' : v === 3 ? ' hit' : '');
-            c.onclick = () => handleShot(i);
-            eb.appendChild(c);
+            const c = document.createElement('div'); c.className = 'cell' + (v===2?' miss':v===3?' hit':'');
+            c.onclick = () => handleShot(i); eb.appendChild(c);
         });
-
         pBoard.forEach((v, i) => {
-            const c = document.createElement('div');
-            c.className = 'cell' + (v === 1 ? ' ship' : v === 2 ? ' miss' : v === 3 ? ' hit' : '');
+            const c = document.createElement('div'); c.className = 'cell' + (v===1?' ship':v===2?' miss':v===3?' hit':'');
             pb.appendChild(c);
         });
     }
 
     function handleShot(idx) {
         if(!isTurn || eBoard[idx] > 0) return;
-        if(mode === 'pvp') {
-            socket.emit('shot', { room: roomID, index: idx });
-            isTurn = false;
+        if(mode === 'pve') {
+            const hit = botShips[idx] === 1;
+            eBoard[idx] = hit ? 3 : 2;
+            hit ? soundHit() : soundMiss();
+            if(!hit) { isTurn = false; document.getElementById('status').innerText = "ХОД БОТА"; setTimeout(botAction, 800); }
         } else {
-            // Бот
-            const isHit = botHiddenShips[idx] === 1;
-            eBoard[idx] = isHit ? 3 : 2;
-            isHit ? soundHit() : soundMiss();
-            if(!isHit) { isTurn = false; setTimeout(botMove, 1000); }
+            socket.emit('shot', { room: roomID, index: idx }); isTurn = false;
         }
         renderGame();
     }
 
-    let botHiddenShips = Array(100).fill(0);
-    function generateBotBoard() {
-        botHiddenShips.fill(0);
-        // В реальной версии тут должен быть алгоритм расстановки бота
-        for(let i=0; i<20; i++) botHiddenShips[Math.floor(Math.random()*100)] = 1;
-    }
-
-    function botMove() {
+    function botAction() {
         let idx; do { idx = Math.floor(Math.random()*100); } while(pBoard[idx] > 1);
-        const isHit = pBoard[idx] === 1;
-        pBoard[idx] = isHit ? 3 : 2;
-        isHit ? soundHit() : soundMiss();
-        if(isHit) setTimeout(botMove, 800);
+        const hit = pBoard[idx] === 1;
+        pBoard[idx] = hit ? 3 : 2;
+        hit ? soundHit() : soundMiss();
+        if(hit) setTimeout(botAction, 800);
         else { isTurn = true; document.getElementById('status').innerText = "ВАШ ХОД"; }
         renderGame();
     }
 
-    // Сокеты
-    socket.on('game_start', (d) => {
-        roomID = d.room; isTurn = (d.role === 'first');
-        document.getElementById('status').innerText = isTurn ? "ВАШ ХОД" : "ХОД ВРАГА";
-        renderGame();
-    });
-    socket.on('enemy_shot', (d) => {
-        const res = pBoard[d.index] === 1 ? 3 : 2;
-        pBoard[d.index] = res;
-        res === 3 ? soundHit() : soundMiss();
-        socket.emit('shot_result', { room: roomID, index: d.index, status: res });
-        isTurn = (res === 2); renderGame();
-    });
-    socket.on('enemy_shot_result', (d) => {
-        eBoard[d.index] = d.status;
-        d.status === 3 ? soundHit() : soundMiss();
-        isTurn = (d.status === 3); renderGame();
-    });
+    if(socket) {
+        socket.on('game_start', (d) => { roomID=d.room; isTurn=(d.role==='first'); document.getElementById('status').innerText=isTurn?"ВАШ ХОД":"ХОД ВРАГА"; renderGame(); });
+        socket.on('enemy_shot', (d) => { 
+            const r = pBoard[d.index]===1?3:2; pBoard[d.index]=r; r===3?soundHit():soundMiss();
+            socket.emit('shot_result', {room:roomID, index:d.index, status:r}); isTurn=(r===2); renderGame(); 
+        });
+        socket.on('enemy_shot_result', (d) => { eBoard[d.index]=d.status; d.status===3?soundHit():soundMiss(); isTurn=(d.status===3); renderGame(); });
+    }
 </script>
 </body>
 </html>
