@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Sea Battle: Classic Rules</title>
+    <title>Sea Battle: Music & Strategy</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        body { font-family: -apple-system, sans-serif; background: #f0f4f8; margin: 0; padding: 10px; text-align: center; color: #2c3e50; user-select: none; }
-        .screen { display: none; flex-direction: column; align-items: center; width: 100%; min-height: 80vh; }
+        body { font-family: -apple-system, sans-serif; background: #f0f4f8; margin: 0; padding: 10px; text-align: center; color: #2c3e50; user-select: none; overflow-x: hidden; }
+        .screen { display: none; flex-direction: column; align-items: center; width: 100%; min-height: 85vh; }
         .active { display: flex; }
         
         .board { 
@@ -17,9 +17,9 @@
             width: min(88vw, 340px); height: min(88vw, 340px); 
             background: #fff; border: 2px solid #2c3e50; margin: 10px auto; 
         }
-        .cell { border: 1px solid #e1e8ed; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 10px; }
+        .cell { border: 1px solid #e1e8ed; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; }
         .ship { background: #3498db !important; border: 1px solid #2980b9; }
-        .hit { background: #e74c3c !important; }
+        .hit { background: #e74c3c !important; position: relative; }
         .hit::after { content: "×"; color: white; font-size: 20px; font-weight: bold; }
         .miss::after { content: "•"; color: #bdc3c7; font-size: 24px; }
 
@@ -34,27 +34,31 @@
         #status { font-weight: bold; margin: 10px; color: #2980b9; height: 24px; }
         .player-label { font-size: 14px; font-weight: bold; margin: 5px 0; color: #34495e; }
         
-        .result-card { background: white; padding: 30px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-        .win-text { color: #2ecc71; font-size: 32px; font-weight: 900; }
-        .lose-text { color: #e74c3c; font-size: 32px; font-weight: 900; }
+        .result-card { background: white; padding: 30px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); margin-top: 50px; }
+        #online-tag { background: #2ecc71; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+        
+        /* Кнопка музыки */
+        #music-toggle { position: fixed; top: 10px; right: 10px; background: rgba(255,255,255,0.8); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 20px; border: 1px solid #ccc; z-index: 100; }
     </style>
 </head>
 <body>
 
+    <div id="music-toggle" onclick="toggleMusic()">🔇</div>
+
     <div id="sc-menu" class="screen active">
         <h1 style="margin-top: 40px;">МОРСКОЙ БОЙ</h1>
-        <p>Игроков онлайн: <span id="online-count">...</span></p>
-        <button class="btn" onclick="openSetup('pve')">ИГРАТЬ С БОТОМ</button>
-        <button class="btn btn-green" onclick="openSetup('pvp')">МУЛЬТИПЛЕЕР</button>
+        <p>В сети <span id="online-tag"><span id="online-count">0</span> чел.</span></p>
+        <button class="btn" onclick="initAudioAndStart('pve')">ИГРАТЬ С БОТОМ</button>
+        <button class="btn btn-green" onclick="initAudioAndStart('pvp')">МУЛЬТИПЛЕЕР</button>
     </div>
 
     <div id="sc-setup" class="screen">
-        <h3>Расстановка флота</h3>
-        <p id="setup-info">Загрузка...</p>
+        <h3>Подготовка флота</h3>
+        <p id="setup-info">Ставим 4-палубный</p>
         <div id="setup-board" class="board"></div>
         <div style="display:flex; gap:10px; width:100%; max-width:340px">
-            <button class="btn" onclick="isVertical = !isVertical; this.innerText = isVertical ? 'Вертикально' : 'Горизонт.'" style="font-size:12px">Горизонт.</button>
-            <button class="btn btn-orange" onclick="autoPlace('player')" style="font-size:12px">Случайно</button>
+            <button class="btn" onclick="isVertical = !isVertical; this.innerText = isVertical ? 'Вертик.' : 'Горизонт.'" style="font-size:12px; padding:10px;">Горизонт.</button>
+            <button class="btn btn-orange" onclick="autoPlace('player')" style="font-size:12px; padding:10px;">Случайно</button>
         </div>
         <button class="btn btn-green" id="start-battle-btn" onclick="startBattle()" disabled>В БОЙ!</button>
         <button class="btn" onclick="location.reload()" style="background:#95a5a6; font-size:12px">Сброс</button>
@@ -62,7 +66,7 @@
 
     <div id="sc-game" class="screen">
         <div id="status">ВАШ ХОД</div>
-        <div class="player-label">ПРОТИВНИК: <span id="enemy-name">Бот</span></div>
+        <div class="player-label">ВРАГ: <span id="enemy-name">Бот</span></div>
         <div id="eb" class="board"></div>
         <div class="player-label">ВЫ: <span id="my-name">Игрок</span></div>
         <div id="pb" class="board"></div>
@@ -70,7 +74,7 @@
 
     <div id="sc-result" class="screen">
         <div class="result-card">
-            <div id="result-title"></div>
+            <h2 id="result-title"></h2>
             <p id="result-desc"></p>
             <button class="btn btn-green" onclick="location.reload()">РЕВАНШ</button>
             <button class="btn" onclick="location.reload()" style="background:#95a5a6">В МЕНЮ</button>
@@ -81,38 +85,73 @@
     const tg = window.Telegram ? window.Telegram.WebApp : null;
     const socket = io("https://bs-clash.onrender.com", { transports: ['websocket', 'polling'] });
     
-    let mode = 'pve';
-    let pBoard = Array(100).fill(0), eBoard = Array(100).fill(0), botShips = Array(100).fill(0);
+    let audioCtx, musicOsc, isMusicPlaying = false;
+    let mode = 'pve', pBoard = Array(100).fill(0), eBoard = Array(100).fill(0), botShips = Array(100).fill(0);
     let isTurn = false, isVertical = false, roomID = null;
     const shipSchema = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
     let currentShipIdx = 0;
 
-    if(tg) {
-        tg.ready();
-        tg.expand();
-        document.getElementById('my-name').innerText = tg.initDataUnsafe?.user?.first_name || "Игрок";
+    // Инициализация звука после первого клика
+    function initAudioAndStart(m) {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            startMusic();
+        }
+        openSetup(m);
+        soundClick();
     }
 
-    socket.on('player_count', (c) => document.getElementById('online-count').innerText = c);
+    function soundClick() { playTone(600, 0.05, 'sine'); }
+    function soundHit() { playTone(150, 0.4, 'square'); if(tg) tg.HapticFeedback.impactOccurred('heavy'); }
+    function soundMiss() { playTone(300, 0.2, 'sine'); }
+
+    function playTone(freq, dur, type) {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type; osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(); osc.stop(audioCtx.currentTime + dur);
+    }
+
+    // Фоновая музыка (простой луп)
+    function startMusic() {
+        if (isMusicPlaying) return;
+        const melody = [261, 329, 392, 523, 392, 329]; // C-E-G-C-G-E
+        let noteIdx = 0;
+        setInterval(() => {
+            if (isMusicPlaying) {
+                playTone(melody[noteIdx % melody.length] / 2, 0.8, 'sine');
+                noteIdx++;
+            }
+        }, 1000);
+        isMusicPlaying = true;
+        document.getElementById('music-toggle').innerText = '🔊';
+    }
+
+    function toggleMusic() {
+        isMusicPlaying = !isMusicPlaying;
+        document.getElementById('music-toggle').innerText = isMusicPlaying ? '🔊' : '🔇';
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    // Логика игры (правило соседей сохранено)
+    function openSetup(m) {
+        mode = m; pBoard.fill(0); currentShipIdx = 0;
+        showScreen('sc-setup'); renderSetup();
+    }
 
     function showScreen(id) {
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
         document.getElementById(id).classList.add('active');
     }
 
-    function openSetup(m) {
-        mode = m;
-        pBoard.fill(0);
-        currentShipIdx = 0;
-        showScreen('sc-setup');
-        renderSetup();
-    }
-
     function renderSetup() {
         const b = document.getElementById('setup-board'); b.innerHTML = '';
         const len = shipSchema[currentShipIdx];
-        document.getElementById('setup-info').innerText = len ? `Поставьте ${len}-палубный корабль` : "Флот готов к сражению!";
-        
+        document.getElementById('setup-info').innerText = len ? `Ставим ${len}-палубный` : "Готов!";
         for(let i=0; i<100; i++) {
             const c = document.createElement('div');
             c.className = 'cell' + (pBoard[i] === 1 ? ' ship' : '');
@@ -123,32 +162,23 @@
 
     function handlePlace(idx, len) {
         if(canPlace(idx, len, isVertical, pBoard)) {
-            for(let i=0; i<len; i++) {
-                pBoard[isVertical ? idx + i*10 : idx + i] = 1;
-            }
-            currentShipIdx++;
+            for(let i=0; i<len; i++) pBoard[isVertical ? idx + i*10 : idx + i] = 1;
+            currentShipIdx++; soundClick();
             if(currentShipIdx >= shipSchema.length) document.getElementById('start-battle-btn').disabled = false;
             renderSetup();
         }
     }
 
-    // КЛЮЧЕВАЯ ФУНКЦИЯ: Проверка правил соседства
     function canPlace(idx, len, vert, board) {
         const x = idx % 10, y = Math.floor(idx / 10);
-        
         for (let i = 0; i < len; i++) {
-            const cx = vert ? x : x + i;
-            const cy = vert ? y + i : y;
-
-            if (cx > 9 || cy > 9) return false; // Выход за границы
-
-            // Проверяем саму клетку и все 8 клеток вокруг неё
+            const cx = vert ? x : x + i, cy = vert ? y + i : y;
+            if (cx > 9 || cy > 9) return false;
             for (let v = -1; v <= 1; v++) {
                 for (let h = -1; h <= 1; h++) {
-                    const nx = cx + h;
-                    const ny = cy + v;
+                    const nx = cx + h, ny = cy + v;
                     if (nx >= 0 && nx < 10 && ny >= 0 && ny < 10) {
-                        if (board[ny * 10 + nx] === 1) return false; // Сосед найден!
+                        if (board[ny * 10 + nx] === 1) return false;
                     }
                 }
             }
@@ -162,45 +192,36 @@
         shipSchema.forEach(len => {
             let placed = false;
             while(!placed) {
-                let idx = Math.floor(Math.random()*100);
-                let vert = Math.random() > 0.5;
+                let idx = Math.floor(Math.random()*100), vert = Math.random() > 0.5;
                 if(canPlace(idx, len, vert, board)) {
                     for(let i=0; i<len; i++) board[vert ? idx+i*10 : idx+i] = 1;
                     placed = true;
                 }
             }
         });
-        if(target === 'player') {
-            currentShipIdx = shipSchema.length;
-            document.getElementById('start-battle-btn').disabled = false;
-            renderSetup();
-        }
+        if(target === 'player') { currentShipIdx = shipSchema.length; document.getElementById('start-battle-btn').disabled = false; renderSetup(); soundClick(); }
     }
 
     function startBattle() {
         if(mode === 'pvp') {
-            socket.emit('find_game', { name: document.getElementById('my-name').innerText });
+            socket.emit('find_game', { name: tg?.initDataUnsafe?.user?.first_name || "Игрок" });
             document.getElementById('status').innerText = "ПОИСК ВРАГА...";
         } else {
-            autoPlace('bot');
-            isTurn = true;
-            document.getElementById('status').innerText = "ВАШ ХОД";
+            autoPlace('bot'); isTurn = true; document.getElementById('status').innerText = "ВАШ ХОД";
         }
-        showScreen('sc-game');
-        renderGame();
+        showScreen('sc-game'); renderGame();
     }
 
     function handleShot(idx) {
         if(!isTurn || eBoard[idx] > 0) return;
         if(mode === 'pve') {
             const hit = botShips[idx] === 1;
-            eBoard[idx] = hit ? 3 : 2;
-            botShips[idx] = hit ? 3 : 2;
-            if(!hit) { isTurn = false; setTimeout(botMove, 600); }
+            eBoard[idx] = hit ? 3 : 2; botShips[idx] = hit ? 3 : 2;
+            hit ? soundHit() : soundMiss();
+            if(!hit) { isTurn = false; setTimeout(botMove, 700); }
             checkWin(); renderGame();
         } else {
-            socket.emit('shot', { room: roomID, index: idx });
-            isTurn = false; renderGame();
+            socket.emit('shot', { room: roomID, index: idx }); isTurn = false; renderGame();
         }
     }
 
@@ -208,7 +229,8 @@
         let idx; do { idx = Math.floor(Math.random()*100); } while(pBoard[idx] > 1);
         const hit = pBoard[idx] === 1;
         pBoard[idx] = hit ? 3 : 2;
-        if(hit) setTimeout(botMove, 600); else isTurn = true;
+        hit ? soundHit() : soundMiss();
+        if(hit) setTimeout(botMove, 700); else isTurn = true;
         checkWin(); renderGame();
     }
 
@@ -235,11 +257,10 @@
     function showFinal(win) {
         showScreen('sc-result');
         document.getElementById('result-title').innerText = win ? "ПОБЕДА!" : "ПОРАЖЕНИЕ!";
-        document.getElementById('result-title').className = win ? "win-text" : "lose-text";
-        document.getElementById('result-desc').innerText = win ? "Вы полностью уничтожили флот противника!" : "Ваш флот был потоплен противником.";
+        document.getElementById('result-desc').innerText = win ? "Вражеский флот уничтожен!" : "Ваш флот потоплен.";
     }
 
-    // Сокеты для PvP
+    socket.on('player_count', (c) => document.getElementById('online-count').innerText = c);
     socket.on('game_start', (d) => {
         roomID = d.room; isTurn = (d.role === 'first');
         document.getElementById('enemy-name').innerText = d.opponentName;
@@ -247,13 +268,13 @@
         renderGame();
     });
     socket.on('enemy_shot', (d) => {
-        const r = pBoard[d.index] === 1 ? 3 : 2;
-        pBoard[d.index] = r;
+        const r = pBoard[d.index] === 1 ? 3 : 2; pBoard[d.index] = r;
+        r === 3 ? soundHit() : soundMiss();
         socket.emit('shot_result', { room: roomID, index: d.index, status: r });
         isTurn = (r === 2); renderGame(); checkWin();
     });
     socket.on('enemy_shot_result', (d) => {
-        eBoard[d.index] = d.status;
+        eBoard[d.index] = d.status; d.status === 3 ? soundHit() : soundMiss();
         isTurn = (d.status === 3); renderGame();
         if(eBoard.filter(v => v === 3).length === 20) showFinal(true);
     });
