@@ -60,4 +60,206 @@
     <div id="screen-menu" class="screen active">
         <h1>МОРСКОЙ БОЙ</h1>
         <button class="btn" onclick="startSetup('pve')">Играть с ботом</button>
-        <button class="btn" style="background:#2ecc71
+        <button class="btn" style="background:#2ecc71" onclick="startSetup('pvp')">Мультиплеер</button>
+    </div>
+
+    <div id="screen-loading" class="screen">
+        <h2 id="loading-text">Поиск игрока...</h2>
+        <div class="loader"></div>
+    </div>
+
+    <div id="screen-setup" class="screen">
+        <h2 id="setup-title">Расстановка</h2>
+        <div id="pb-setup" class="board"></div>
+        <button class="btn" onclick="toggleOrient()">Повернуть</button>
+        <button class="btn" style="background:#95a5a6" onclick="autoPlace()">Авто</button>
+    </div>
+
+    <div id="screen-game" class="screen">
+        <div id="game-status" class="status"></div>
+        <div id="eb" class="board"></div>
+        <p>Ваш флот</p>
+        <div id="pb" class="board"></div>
+    </div>
+
+<script>
+    // --- Инициализация SDK ---
+    const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+    if (tg) { tg.expand(); tg.ready(); }
+
+    // --- Настройка сокета ---
+    // ЗАМЕНИТЕ ЭТУ ССЫЛКУ на вашу из Render!
+    const SERVER_URL = "https://bs-clash.onrender.com"; 
+    const socket = io(SERVER_URL, { transports: ["websocket"] });
+
+    let mode = 'pve'; 
+    let pBoard = Array(100).fill(0);
+    let eBoard = Array(100).fill(0);
+    let shipsToPlace = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
+    let isVert = false;
+    let isPlayerTurn = true;
+    let currentRoom = null;
+
+    // --- Звуки ---
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playSnd(freq, type = 'sine') {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type; osc.frequency.value = freq;
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.2);
+    }
+
+    function showScreen(id) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+    }
+
+    // --- Логика расстановки ---
+    function startSetup(m) {
+        mode = m; pBoard.fill(0); shipsToPlace = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
+        showScreen('screen-setup'); renderSetup();
+    }
+
+    function renderSetup() {
+        const b = document.getElementById('pb-setup'); b.innerHTML = '';
+        document.getElementById('setup-title').innerText = `Корабль: ${shipsToPlace[0]} кл.`;
+        pBoard.forEach((v, i) => {
+            const c = document.createElement('div');
+            c.className = 'cell' + (v === 1 ? ' ship' : '');
+            c.onclick = () => {
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                placeShip(i);
+            };
+            b.appendChild(c);
+        });
+    }
+
+    function placeShip(idx) {
+        const len = shipsToPlace[0];
+        if (canPlace(pBoard, idx, len, isVert)) {
+            for (let i = 0; i < len; i++) pBoard[isVert ? idx + i * 10 : idx + i] = 1;
+            shipsToPlace.shift();
+            if (shipsToPlace.length === 0) startActiveMode();
+            else renderSetup();
+            playSnd(400);
+        }
+    }
+
+    function canPlace(board, start, len, vert) {
+        const x = start % 10, y = Math.floor(start / 10);
+        for (let i = 0; i < len; i++) {
+            const cx = vert ? x : x + i, cy = vert ? y + i : y;
+            if (cx >= 10 || cy >= 10) return false;
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    const nx = cx + dx, ny = cy + dy;
+                    if (nx >= 0 && nx < 10 && ny >= 0 && ny < 10 && board[ny * 10 + nx] === 1) return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    function toggleOrient() { isVert = !isVert; playSnd(600); }
+
+    function autoPlace() {
+        pBoard.fill(0);
+        [4, 3, 3, 2, 2, 2, 1, 1, 1, 1].forEach(len => {
+            let p = false; while(!p) {
+                let i = Math.floor(Math.random()*100), v = Math.random()>0.5;
+                if(canPlace(pBoard, i, len, v)) {
+                    for(let j=0; j<len; j++) pBoard[v?i+j*10:i+j]=1; p=true;
+                }
+            }
+        });
+        startActiveMode();
+    }
+
+    // --- Работа с сетью ---
+    function startActiveMode() {
+        if (mode === 'pve') {
+            setupBotEnemy(); showScreen('screen-game'); renderGame();
+        } else {
+            showScreen('screen-loading');
+            socket.emit('find_game', { name: tg?.initDataUnsafe?.user?.first_name || "Игрок" });
+        }
+    }
+
+    socket.on('game_start', (data) => {
+        currentRoom = data.room;
+        isPlayerTurn = (data.role === 'first');
+        eBoard.fill(0);
+        showScreen('screen-game');
+        renderGame();
+        if (tg) tg.HapticFeedback.notificationOccurred('success');
+    });
+
+    function renderGame() {
+        draw('pb', pBoard, false); draw('eb', eBoard, true);
+        const st = document.getElementById('game-status');
+        st.innerText = isPlayerTurn ? "ВАШ ХОД" : "ХОД ВРАГА";
+        st.style.color = isPlayerTurn ? "#2ecc71" : "#e74c3c";
+    }
+
+    function draw(id, data, isEnemy) {
+        const b = document.getElementById(id); b.innerHTML = '';
+        data.forEach((v, i) => {
+            const c = document.createElement('div');
+            c.className = 'cell';
+            if (v === 1 && !isEnemy) c.classList.add('ship');
+            if (v === 2) c.classList.add('miss');
+            if (v === 3) c.classList.add('hit');
+            if (isEnemy) c.onclick = () => playerShoot(i);
+            b.appendChild(c);
+        });
+    }
+
+    function playerShoot(idx) {
+        if (!isPlayerTurn || eBoard[idx] > 0) return;
+        if (mode === 'pvp') {
+            socket.emit('shot', { room: currentRoom, index: idx });
+            isPlayerTurn = false; // Ждем ответа от сервера
+        } else {
+            // Логика бота
+            if (eBoard[idx] === 0) {
+                // В эмуляции бота eBoard[idx] временно хранит корабли скрыто
+                // Для простоты здесь просто рандом
+                let hit = Math.random() > 0.8; 
+                eBoard[idx] = hit ? 3 : 2;
+                if (!hit) { isPlayerTurn = false; setTimeout(botTurn, 800); }
+            }
+        }
+        renderGame();
+    }
+
+    // Слушаем ответы сервера в PvP
+    socket.on('enemy_shot', (data) => {
+        const res = pBoard[data.index] === 1 ? 3 : 2;
+        pBoard[data.index] = res;
+        socket.emit('shot_result', { room: currentRoom, index: data.index, status: res });
+        isPlayerTurn = (res === 2);
+        if (res === 3 && tg) tg.HapticFeedback.impactOccurred('heavy');
+        renderGame();
+    });
+
+    socket.on('enemy_shot_result', (data) => {
+        eBoard[data.index] = data.status;
+        isPlayerTurn = (data.status === 3);
+        renderGame();
+    });
+
+    function botTurn() {
+        let i; do { i = Math.floor(Math.random()*100); } while(pBoard[i]>1);
+        if (pBoard[i] === 1) { pBoard[i]=3; setTimeout(botTurn, 800); }
+        else { pBoard[i]=2; isPlayerTurn = true; }
+        renderGame();
+    }
+
+    function setupBotEnemy() { eBoard.fill(0); /* В PVE просто стреляем наугад */ }
+
+</script>
+</body>
+</html>
