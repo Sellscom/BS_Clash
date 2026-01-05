@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Sea Battle: Music & Strategy</title>
+    <title>Sea Battle: Full Navigation</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { font-family: -apple-system, sans-serif; background: #f0f4f8; margin: 0; padding: 10px; text-align: center; color: #2c3e50; user-select: none; overflow-x: hidden; }
-        .screen { display: none; flex-direction: column; align-items: center; width: 100%; min-height: 85vh; }
+        .screen { display: none; flex-direction: column; align-items: center; width: 100%; min-height: 90vh; }
         .active { display: flex; }
         
         .board { 
@@ -30,14 +30,13 @@
         }
         .btn-green { background: #2ecc71; }
         .btn-orange { background: #f39c12; }
+        .btn-exit { background: #95a5a6; padding: 10px; font-size: 14px; margin-top: 20px; }
         
         #status { font-weight: bold; margin: 10px; color: #2980b9; height: 24px; }
         .player-label { font-size: 14px; font-weight: bold; margin: 5px 0; color: #34495e; }
         
         .result-card { background: white; padding: 30px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); margin-top: 50px; }
         #online-tag { background: #2ecc71; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
-        
-        /* Кнопка музыки */
         #music-toggle { position: fixed; top: 10px; right: 10px; background: rgba(255,255,255,0.8); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 20px; border: 1px solid #ccc; z-index: 100; }
     </style>
 </head>
@@ -46,7 +45,7 @@
     <div id="music-toggle" onclick="toggleMusic()">🔇</div>
 
     <div id="sc-menu" class="screen active">
-        <h1 style="margin-top: 40px;">МОРСКОЙ БОЙ</h1>
+        <h1 style="margin-top: 50px;">МОРСКОЙ БОЙ</h1>
         <p>В сети <span id="online-tag"><span id="online-count">0</span> чел.</span></p>
         <button class="btn" onclick="initAudioAndStart('pve')">ИГРАТЬ С БОТОМ</button>
         <button class="btn btn-green" onclick="initAudioAndStart('pvp')">МУЛЬТИПЛЕЕР</button>
@@ -54,14 +53,14 @@
 
     <div id="sc-setup" class="screen">
         <h3>Подготовка флота</h3>
-        <p id="setup-info">Ставим 4-палубный</p>
+        <p id="setup-info">Ставим корабль...</p>
         <div id="setup-board" class="board"></div>
         <div style="display:flex; gap:10px; width:100%; max-width:340px">
             <button class="btn" onclick="isVertical = !isVertical; this.innerText = isVertical ? 'Вертик.' : 'Горизонт.'" style="font-size:12px; padding:10px;">Горизонт.</button>
             <button class="btn btn-orange" onclick="autoPlace('player')" style="font-size:12px; padding:10px;">Случайно</button>
         </div>
         <button class="btn btn-green" id="start-battle-btn" onclick="startBattle()" disabled>В БОЙ!</button>
-        <button class="btn" onclick="location.reload()" style="background:#95a5a6; font-size:12px">Сброс</button>
+        <button class="btn btn-exit" onclick="location.reload()">← В ГЛАВНОЕ МЕНЮ</button>
     </div>
 
     <div id="sc-game" class="screen">
@@ -70,14 +69,15 @@
         <div id="eb" class="board"></div>
         <div class="player-label">ВЫ: <span id="my-name">Игрок</span></div>
         <div id="pb" class="board"></div>
+        <button class="btn btn-exit" onclick="confirmExit()">🏳️ ПОКИНУТЬ БОЙ</button>
     </div>
 
     <div id="sc-result" class="screen">
         <div class="result-card">
-            <h2 id="result-title"></h2>
+            <h2 id="result-title">РЕЗУЛЬТАТ</h2>
             <p id="result-desc"></p>
             <button class="btn btn-green" onclick="location.reload()">РЕВАНШ</button>
-            <button class="btn" onclick="location.reload()" style="background:#95a5a6">В МЕНЮ</button>
+            <button class="btn btn-exit" onclick="location.reload()">В МЕНЮ</button>
         </div>
     </div>
 
@@ -85,13 +85,12 @@
     const tg = window.Telegram ? window.Telegram.WebApp : null;
     const socket = io("https://bs-clash.onrender.com", { transports: ['websocket', 'polling'] });
     
-    let audioCtx, musicOsc, isMusicPlaying = false;
+    let audioCtx, isMusicPlaying = false;
     let mode = 'pve', pBoard = Array(100).fill(0), eBoard = Array(100).fill(0), botShips = Array(100).fill(0);
     let isTurn = false, isVertical = false, roomID = null;
     const shipSchema = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
     let currentShipIdx = 0;
 
-    // Инициализация звука после первого клика
     function initAudioAndStart(m) {
         if (!audioCtx) {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -116,10 +115,9 @@
         osc.start(); osc.stop(audioCtx.currentTime + dur);
     }
 
-    // Фоновая музыка (простой луп)
     function startMusic() {
         if (isMusicPlaying) return;
-        const melody = [261, 329, 392, 523, 392, 329]; // C-E-G-C-G-E
+        const melody = [261, 329, 392, 523, 392, 329];
         let noteIdx = 0;
         setInterval(() => {
             if (isMusicPlaying) {
@@ -137,7 +135,12 @@
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
 
-    // Логика игры (правило соседей сохранено)
+    function confirmExit() {
+        if (confirm("Вы уверены, что хотите покинуть бой? Это будет засчитано как поражение.")) {
+            location.reload();
+        }
+    }
+
     function openSetup(m) {
         mode = m; pBoard.fill(0); currentShipIdx = 0;
         showScreen('sc-setup'); renderSetup();
@@ -151,7 +154,7 @@
     function renderSetup() {
         const b = document.getElementById('setup-board'); b.innerHTML = '';
         const len = shipSchema[currentShipIdx];
-        document.getElementById('setup-info').innerText = len ? `Ставим ${len}-палубный` : "Готов!";
+        document.getElementById('setup-info').innerText = len ? `Поставьте ${len}-палубный корабль` : "Флот готов!";
         for(let i=0; i<100; i++) {
             const c = document.createElement('div');
             c.className = 'cell' + (pBoard[i] === 1 ? ' ship' : '');
