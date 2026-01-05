@@ -3,151 +3,188 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Sea Battle Clash PvP</title>
-    
+    <title>Sea Battle Pro</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        body { 
-            font-family: -apple-system, system-ui, sans-serif; 
-            background: #f0f4f8; margin: 0; padding: 15px; 
-            text-align: center; color: #2c3e50; overflow-x: hidden;
-        }
+        body { font-family: -apple-system, sans-serif; background: #f0f4f8; margin: 0; padding: 10px; text-align: center; color: #2c3e50; }
         
         .screen { display: none; flex-direction: column; align-items: center; width: 100%; }
         .active { display: flex; }
 
         .board { 
             display: grid; grid-template-columns: repeat(10, 1fr); 
-            width: min(88vw, 320px); height: min(88vw, 320px); 
-            background: white; border: 2px solid #2c3e50; margin: 10px auto; 
-            touch-action: none;
+            width: min(90vw, 340px); height: min(90vw, 340px); 
+            background: #fff; border: 2px solid #2c3e50; margin: 10px auto; 
         }
-        .cell { border: 1px solid #eee; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 18px; position: relative; }
+        .cell { border: 1px solid #e1e8ed; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; position: relative; }
         
-        /* Состояния клеток */
-        .ship { background: #3498db; }
-        .hit { background: #e74c3c !important; color: white; }
-        .hit::after { content: "×"; font-weight: bold; }
-        .miss { background: #dcdde1; }
-        .miss::after { content: "•"; color: #7f8c8d; font-size: 24px; }
+        .ship { background: #3498db; border: 1px solid #2980b9; }
+        .hit { background: #e74c3c !important; }
+        .hit::after { content: "×"; color: white; font-weight: bold; }
+        .miss::after { content: "•"; color: #bdc3c7; font-size: 24px; }
 
         .btn {
-            display: block; width: 100%; max-width: 280px; padding: 18px; margin: 10px auto;
-            border-radius: 15px; border: none; background: #3498db; color: white;
-            font-weight: bold; font-size: 18px; cursor: pointer;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            display: block; width: 100%; max-width: 280px; padding: 15px; margin: 8px auto;
+            border-radius: 12px; border: none; background: #3498db; color: white;
+            font-weight: bold; font-size: 16px; cursor: pointer;
         }
-        .btn:active { transform: scale(0.98); opacity: 0.9; }
-
-        #status { font-weight: bold; margin: 15px; color: #2980b9; min-height: 24px; font-size: 18px; }
-        .info-text { font-size: 12px; color: #7f8c8d; margin-top: 5px; }
+        .btn:disabled { background: #bdc3c7; }
+        .btn-green { background: #2ecc71; }
         
-        #debug-log { font-size: 10px; color: #e74c3c; margin-top: 20px; text-align: left; opacity: 0.5; }
+        #status { font-weight: bold; margin: 10px; color: #2980b9; height: 24px; }
+        .controls { display: flex; gap: 10px; width: 100%; max-width: 340px; }
     </style>
 </head>
 <body>
 
     <div id="sc-menu" class="screen active">
-        <h1 style="margin-top: 40px; letter-spacing: 2px;">МОРСКОЙ БОЙ</h1>
-        <button class="btn" onclick="startGame('pve')">ИГРАТЬ С БОТОМ</button>
-        <button class="btn" style="background:#2ecc71" onclick="startGame('pvp')">МУЛЬТИПЛЕЕР</button>
-        <div id="connection-status" class="info-text">Проверка сервера...</div>
+        <h1 style="margin-top: 30px;">МОРСКОЙ БОЙ</h1>
+        <button class="btn" onclick="openSetup('pve')">ИГРАТЬ С БОТОМ</button>
+        <button class="btn btn-green" onclick="openSetup('pvp')">МУЛЬТИПЛЕЕР</button>
+    </div>
+
+    <div id="sc-setup" class="screen">
+        <h3>Расстановка флота</h3>
+        <p id="setup-info">Выберите место для: 4-палубный</p>
+        <div id="setup-board" class="board"></div>
+        <div class="controls">
+            <button class="btn" onclick="toggleOrientation()" id="orient-btn">Поворот: Гориз.</button>
+            <button class="btn" style="background:#f39c12" onclick="resetSetup()">Сброс</button>
+        </div>
+        <button class="btn btn-green" id="start-battle-btn" onclick="startBattle()" disabled>В БОЙ!</button>
     </div>
 
     <div id="sc-game" class="screen">
-        <div id="status">ПОДГОТОВКА...</div>
+        <div id="status">ВАШ ХОД</div>
         <div id="eb" class="board"></div>
-        <div style="margin: 5px 0; font-size: 14px; font-weight: bold; opacity: 0.6;">ВАШ ФЛОТ</div>
+        <div style="font-size: 12px; opacity: 0.6; margin: 5px;">ВАШ ФЛОТ</div>
         <div id="pb" class="board"></div>
-        <button class="btn" style="background:#95a5a6; padding: 12px; font-size: 14px;" onclick="location.reload()">В МЕНЮ</button>
+        <button class="btn" style="background:#95a5a6; padding: 8px;" onclick="location.reload()">В МЕНЮ</button>
     </div>
 
-    <div id="debug-log"></div>
-
 <script>
-    // 1. Настройка Telegram
     const tg = window.Telegram ? window.Telegram.WebApp : null;
-    if (tg) {
-        tg.ready();
-        tg.expand();
+    const socket = io("https://bs-clash.onrender.com", { transports: ['websocket', 'polling'] });
+
+    // Звуковой движок (Web Audio API)
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playSound(freq, type, duration) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type; osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(); osc.stop(audioCtx.currentTime + duration);
     }
 
-    // 2. Настройка Сервера
-    const SERVER_URL = "https://bs-clash.onrender.com";
-    let socket;
-    
-    // Состояние игры
+    const soundHit = () => { playSound(150, 'sawtooth', 0.4); if(tg) tg.HapticFeedback.impactOccurred('heavy'); };
+    const soundMiss = () => playSound(300, 'sine', 0.2);
+    const soundClick = () => playSound(600, 'sine', 0.05);
+
+    // Логика кораблей
     let mode = 'pve';
-    let pBoard = Array(100).fill(0); // 0-пусто, 1-корабль, 2-мимо, 3-попал
-    let eBoard = Array(100).fill(0); 
+    let pBoard = Array(100).fill(0);
+    let eBoard = Array(100).fill(0);
     let isTurn = false;
     let roomID = null;
+    
+    // Порядок расстановки: 1x4, 2x3, 3x2, 4x1
+    const shipSchema = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
+    let currentShipIdx = 0;
+    let isVertical = false;
 
-    // Инициализация сокета
-    try {
-        socket = io(SERVER_URL, { transports: ['websocket', 'polling'] });
-        
-        socket.on('connect', () => {
-            document.getElementById('connection-status').innerText = "Сервер онлайн ✅";
-            document.getElementById('connection-status').style.color = "#2ecc71";
-        });
-
-        socket.on('connect_error', () => {
-            document.getElementById('connection-status').innerText = "Сервер спит... (ждите 15-30 сек)";
-            document.getElementById('connection-status').style.color = "#e67e22";
-        });
-    } catch(e) {
-        document.getElementById('debug-log').innerText = "Ошибка сокета: " + e.message;
+    function openSetup(m) {
+        mode = m;
+        resetSetup();
+        showScreen('sc-setup');
+        renderSetup();
     }
 
-    // --- ЛОГИКА ИГРЫ ---
-
-    function startGame(m) {
-        // Вибрация при нажатии
-        if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-
-        mode = m;
-        
-        if (mode === 'pvp' && (!socket || !socket.connected)) {
-            alert("Сервер еще не проснулся. Пожалуйста, подождите немного.");
-            return;
-        }
-
-        // Авто-расстановка (10 случайных клеток)
+    function resetSetup() {
         pBoard.fill(0);
-        let placed = 0;
-        while(placed < 10) {
-            let i = Math.floor(Math.random() * 100);
-            if(pBoard[i] === 0) { pBoard[i] = 1; placed++; }
+        currentShipIdx = 0;
+        document.getElementById('start-battle-btn').disabled = true;
+        renderSetup();
+    }
+
+    function toggleOrientation() {
+        isVertical = !isVertical;
+        document.getElementById('orient-btn').innerText = isVertical ? "Поворот: Верт." : "Поворот: Гориз.";
+        soundClick();
+    }
+
+    function renderSetup() {
+        const b = document.getElementById('setup-board');
+        b.innerHTML = '';
+        const currentLen = shipSchema[currentShipIdx];
+        document.getElementById('setup-info').innerText = currentLen ? `Ставим: ${currentLen}-палубный` : "Все корабли расставлены!";
+        
+        for(let i=0; i<100; i++) {
+            const c = document.createElement('div');
+            c.className = 'cell' + (pBoard[i] === 1 ? ' ship' : '');
+            c.onclick = () => tryPlaceShip(i);
+            b.appendChild(c);
+        }
+    }
+
+    function tryPlaceShip(idx) {
+        if(currentShipIdx >= shipSchema.length) return;
+        const len = shipSchema[currentShipIdx];
+        const x = idx % 10, y = Math.floor(idx / 10);
+        
+        // Проверка границ и соседей
+        const coords = [];
+        for(let i=0; i<len; i++) {
+            const cx = isVertical ? x : x + i;
+            const cy = isVertical ? y + i : y;
+            if(cx > 9 || cy > 9) return; // Выход за границы
+            
+            // Проверка окружения (правило 1 клетки)
+            for(let dy=-1; dy<=1; dy++) {
+                for(let dx=-1; dx<=1; dx++) {
+                    const nx = cx + dx, ny = cy + dy;
+                    if(nx >=0 && nx <10 && ny >=0 && ny <10) {
+                        if(pBoard[ny*10 + nx] === 1) return; 
+                    }
+                }
+            }
+            coords.push(cy * 10 + cx);
         }
 
-        if (mode === 'pvp') {
+        coords.forEach(c => pBoard[c] = 1);
+        currentShipIdx++;
+        soundClick();
+        if(currentShipIdx === shipSchema.length) document.getElementById('start-battle-btn').disabled = false;
+        renderSetup();
+    }
+
+    function startBattle() {
+        if(mode === 'pvp') {
             socket.emit('find_game', { name: tg?.initDataUnsafe?.user?.first_name || "Игрок" });
             document.getElementById('status').innerText = "ПОИСК ПРОТИВНИКА...";
         } else {
+            generateBotBoard();
             isTurn = true;
             document.getElementById('status').innerText = "ВАШ ХОД";
         }
-
         showScreen('sc-game');
-        render();
+        renderGame();
     }
 
     function showScreen(id) {
-        document.getElementById('sc-menu').style.display = 'none';
-        document.getElementById('sc-game').style.display = 'none';
-        document.getElementById(id).style.display = 'flex';
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
     }
 
-    function render() {
+    // Рендер игры и логика выстрелов (упрощенно)
+    function renderGame() {
         const eb = document.getElementById('eb');
         const pb = document.getElementById('pb');
         eb.innerHTML = ''; pb.innerHTML = '';
 
-        // Отрисовка поля врага
         eBoard.forEach((v, i) => {
             const c = document.createElement('div');
             c.className = 'cell' + (v === 2 ? ' miss' : v === 3 ? ' hit' : '');
@@ -155,7 +192,6 @@
             eb.appendChild(c);
         });
 
-        // Отрисовка вашего поля
         pBoard.forEach((v, i) => {
             const c = document.createElement('div');
             c.className = 'cell' + (v === 1 ? ' ship' : v === 2 ? ' miss' : v === 3 ? ' hit' : '');
@@ -164,73 +200,55 @@
     }
 
     function handleShot(idx) {
-        if (!isTurn || eBoard[idx] > 0) return;
-
-        if (mode === 'pvp') {
+        if(!isTurn || eBoard[idx] > 0) return;
+        if(mode === 'pvp') {
             socket.emit('shot', { room: roomID, index: idx });
             isTurn = false;
-            document.getElementById('status').innerText = "ОЖИДАНИЕ...";
         } else {
-            // Режим бота
-            let hit = Math.random() > 0.8; 
-            eBoard[idx] = hit ? 3 : 2;
-            if (!hit) {
-                isTurn = false;
-                document.getElementById('status').innerText = "ХОД БОТА";
-                setTimeout(botAttack, 1000);
-            }
+            // Бот
+            const isHit = botHiddenShips[idx] === 1;
+            eBoard[idx] = isHit ? 3 : 2;
+            isHit ? soundHit() : soundMiss();
+            if(!isHit) { isTurn = false; setTimeout(botMove, 1000); }
         }
-        render();
+        renderGame();
     }
 
-    function botAttack() {
-        let idx;
-        do { idx = Math.floor(Math.random() * 100); } while (pBoard[idx] > 1);
-        
-        if (pBoard[idx] === 1) {
-            pBoard[idx] = 3;
-            if (tg) tg.HapticFeedback.impactOccurred('medium');
-            setTimeout(botAttack, 800);
-        } else {
-            pBoard[idx] = 2;
-            isTurn = true;
-            document.getElementById('status').innerText = "ВАШ ХОД";
-        }
-        render();
+    let botHiddenShips = Array(100).fill(0);
+    function generateBotBoard() {
+        botHiddenShips.fill(0);
+        // В реальной версии тут должен быть алгоритм расстановки бота
+        for(let i=0; i<20; i++) botHiddenShips[Math.floor(Math.random()*100)] = 1;
     }
 
-    // --- СОБЫТИЯ МУЛЬТИПЛЕЕРА ---
-    if (socket) {
-        socket.on('game_start', (data) => {
-            roomID = data.room;
-            isTurn = (data.role === 'first');
-            document.getElementById('status').innerText = isTurn ? "ВАШ ХОД" : "ХОД ПРОТИВНИКА";
-            if (tg) tg.HapticFeedback.notificationOccurred('success');
-            render();
-        });
-
-        socket.on('enemy_shot', (data) => {
-            const result = pBoard[data.index] === 1 ? 3 : 2;
-            pBoard[data.index] = result;
-            
-            // Отправляем результат врагу
-            socket.emit('shot_result', { room: roomID, index: data.index, status: result });
-            
-            isTurn = (result === 2); // Если враг промахнулся, наш ход
-            document.getElementById('status').innerText = isTurn ? "ВАШ ХОД" : "ХОД ПРОТИВНИКА";
-            
-            if (result === 3 && tg) tg.HapticFeedback.impactOccurred('heavy');
-            render();
-        });
-
-        socket.on('enemy_shot_result', (data) => {
-            eBoard[data.index] = data.status;
-            isTurn = (data.status === 3); // Если попали, ходим снова
-            document.getElementById('status').innerText = isTurn ? "ПОПАДАНИЕ! ВАШ ХОД" : "ХОД ПРОТИВНИКА";
-            render();
-        });
+    function botMove() {
+        let idx; do { idx = Math.floor(Math.random()*100); } while(pBoard[idx] > 1);
+        const isHit = pBoard[idx] === 1;
+        pBoard[idx] = isHit ? 3 : 2;
+        isHit ? soundHit() : soundMiss();
+        if(isHit) setTimeout(botMove, 800);
+        else { isTurn = true; document.getElementById('status').innerText = "ВАШ ХОД"; }
+        renderGame();
     }
 
+    // Сокеты
+    socket.on('game_start', (d) => {
+        roomID = d.room; isTurn = (d.role === 'first');
+        document.getElementById('status').innerText = isTurn ? "ВАШ ХОД" : "ХОД ВРАГА";
+        renderGame();
+    });
+    socket.on('enemy_shot', (d) => {
+        const res = pBoard[d.index] === 1 ? 3 : 2;
+        pBoard[d.index] = res;
+        res === 3 ? soundHit() : soundMiss();
+        socket.emit('shot_result', { room: roomID, index: d.index, status: res });
+        isTurn = (res === 2); renderGame();
+    });
+    socket.on('enemy_shot_result', (d) => {
+        eBoard[d.index] = d.status;
+        d.status === 3 ? soundHit() : soundMiss();
+        isTurn = (d.status === 3); renderGame();
+    });
 </script>
 </body>
 </html>
